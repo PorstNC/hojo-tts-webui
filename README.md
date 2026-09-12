@@ -1,5 +1,7 @@
 # Hojo-TTS-Light-40M WebUI + OpenAI 兼容 API
 
+English Doc [Doc](https://github.com/PorstNC/hojo-tts-webui/blob/main/README.en.md)
+
 基于 [HojoAI/Hojo-TTS-Light](https://github.com/HojoAI/Hojo-TTS-Light) 的轻量级中英文语音合成服务。模型已预转换为 FP32 ONNX 格式，无需 PyTorch，CPU 即可运行。同时提供 Web 界面、站内 API（HMAC 哈希验证）和 OpenAI 兼容 TTS 接口。
 
 > **要求：Python 3.10+**（已在 3.10 / 3.11 / 3.12 上测试）
@@ -362,6 +364,9 @@ A: mp3 需要 `pydub` 和 `ffmpeg`。安装：`pip install pydub` 并确保系�
 
 **Q: Termux 上 onnxruntime 安装失败？**
 A: 推荐使用 proot-distro Ubuntu 环境，或在原生 Termux 中尝试 `pkg install onnxruntime`（TUR 仓库）。
+
+## 该项目的sta情况
+[![Star History Chart](https://api.star-history.com/svg?repos=PorstNC/hojo-tts-webui&type=Date)](https://star-history.com/#PorstNC/hojo-tts-webui&Date)
 
 ## 许可证
 
