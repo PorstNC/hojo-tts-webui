@@ -1,5 +1,7 @@
 # Hojo-TTS-Light-40M WebUI + OpenAI-Compatible API
 
+[文档](https://github.com/PorstNC/hojo-tts-webui/blob/main/README.md)
+
 A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS-Light](https://github.com/HojoAI/Hojo-TTS-Light). The model is pre-converted to FP32 ONNX format — no PyTorch required, runs on CPU. Includes a Web interface, internal API, and OpenAI-compatible TTS endpoint.
 
 ## Features
