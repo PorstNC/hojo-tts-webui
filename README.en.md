@@ -13,11 +13,13 @@ A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS
 - **Multiple API keys** — visual management in WebUI settings, support add/delete/rename
 - **Billing mode switch** — WebUI slider three-way toggle: off / per-call / per-token, mutually exclusive, instant effect
 - **Per-call billing** — each key can set call count limit (-1=unlimited), auto-decrement, 429 on excess
-- **Token billing** — deduct by input text token count, supports 1/hundred/thousand/million/billion token tiers, custom prompt on excess
+- **Token billing** — deduct by input text token count, supports 1/hundred/thousand/ten-thousand/hundred-million token tiers, custom prompt on excess
 - **Usage statistics** — real-time per-call and token usage for each key, one-click reset separately
 - **Default voice** — OpenAI endpoint defaults to `hojo_zh_f_02` (Chinese female 2)
 - **Cross-platform** — one-click launch scripts for Windows / Linux, auto dependency detection
 - **Multi-language UI** — English / Chinese interface switch, language files in `locales/`
+- **Auto model download** — launcher auto-detects model, interactively selects region to download from HuggingFace if missing
+- **GPU/CPU adaptive** — choose GPU (onnxruntime-gpu) or CPU (onnxruntime) runtime at launch
 
 ## Hardware Requirements
 
@@ -30,15 +32,15 @@ A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS
 
 ## Quick Start
 
-### Linux
+### Linux / Termux
 
 ```bash
-unzip hojo-tts-webui.zip
+git clone https://github.com/PorstNC/hojo-tts-webui.git
 cd hojo-tts-webui
 bash start.sh
 ```
 
-The script auto-detects: creates venv if missing → installs dependencies if missing → launches if model is complete.
+The script automatically: creates venv → installs base dependencies → chooses GPU/CPU runtime → checks model (downloads interactively if missing) → starts service.
 
 ### Windows
 
@@ -54,7 +56,8 @@ start.bat
 ```bash
 python3 -m venv venv
 source venv/bin/activate    # Windows: venv\Scripts\activate
-pip install numpy soundfile tokenizers onnxruntime flask
+pip install -r requirements.txt
+pip install onnxruntime      # CPU version; GPU users use pip install onnxruntime-gpu
 python3 app.py --host 0.0.0.0 --port 7860
 ```
 
@@ -62,6 +65,53 @@ After launch, access:
 - **WebUI**: http://127.0.0.1:7860
 - **Internal API**: `POST http://127.0.0.1:7860/api/tts`
 - **OpenAI API**: `POST http://127.0.0.1:7860/v1/audio/speech`
+
+## Model Download
+
+> This repository does NOT include model weights (~330MB). The launcher will auto-detect and download them.
+
+### Auto Download (Recommended)
+
+Run `start.sh` or `start.bat`. When model files are missing, it will interactively ask:
+
+1. **Select region**:
+   - `1. China` — use HF mirror (hf-mirror.com), fast in mainland China
+   - `2. Other countries` — use official HF (huggingface.co)
+
+2. **Select runtime**:
+   - `1. CPU` — install `onnxruntime`, works everywhere
+   - `2. GPU` — install `onnxruntime-gpu`, requires NVIDIA GPU + CUDA
+
+Model repo: `HojoAI/Hojo-TTS-Light-40M`
+
+### Manual Download
+
+If auto-download fails, you can download manually:
+
+```bash
+pip install huggingface_hub
+
+# China users (mirror)
+export HF_ENDPOINT=https://hf-mirror.com
+huggingface-cli download HojoAI/Hojo-TTS-Light-40M --local-dir ./models
+
+# International users (official)
+huggingface-cli download HojoAI/Hojo-TTS-Light-40M --local-dir ./models
+```
+
+After download, folder structure should be:
+
+```
+hojo-tts-webui/
+└── models/
+    ├── Hojo-TTS-Light-40M-decoder.onnx
+    ├── Hojo-TTS-Light-40M-fine_local.onnx
+    ├── Hojo-TTS-Light-40M-llm.onnx
+    ├── Hojo-TTS-Light-40M-voice.npz
+    ├── tokenizer.json
+    ├── tokenizer_config.json
+    └── config.json
+```
 
 ## Project Structure
 
@@ -71,11 +121,11 @@ hojo-tts-webui/
 ├── infer.py                # TTS high-level API (official)
 ├── onnx_model.py           # ONNX inference engine (official)
 ├── config.json             # Config file (model name/default voice/API keys/voice map)
-├── requirements.txt        # Python dependencies
-├── start.sh                # Linux one-click launch (auto venv + dependency detection)
-├── start.bat               # Windows one-click launch
+├── requirements.txt        # Python base dependencies (without onnxruntime)
+├── start.sh                # Linux one-click launch (auto model download + GPU/CPU choice)
+├── start.bat               # Windows one-click launch (auto model download + GPU/CPU choice)
 ├── locales/                # Multi-language files (en.json, zh.json)
-├── models/                 # Model files (~330MB, pre-downloaded)
+├── models/                 # Model files (auto-downloaded at launch)
 ├── templates/index.html    # Frontend page
 ├── static/                 # CSS + JS
 └── outputs/                # Generated audio (created at runtime)
@@ -288,30 +338,6 @@ Environment variables:
 PORT=8080 HOST=127.0.0.1 bash start.sh
 ```
 
-## Performance Optimization
-
-- **x86 Linux/Windows**: auto-use all CPU cores, multi-thread acceleration
-- **Termux/ARM**: auto-limit to `cores-1` threads to avoid overheating
-- Model load takes ~4-10 seconds (depends on disk speed)
-- Runtime memory ~750MB-1.2GB
-
-## FAQ
-
-**Q: Blank page or 500 after launch?**
-A: Check terminal errors, usually missing model files. Ensure `models/` directory is complete.
-
-**Q: OpenAI endpoint returns 401?**
-A: `api_keys` is configured in `config.json`, requests need `Authorization: Bearer <key>`. Or set `api_keys` to `[]` to disable auth.
-
-**Q: How to change default voice?**
-A: Modify `default_voice` field in `config.json`, restart service.
-
-**Q: mp3 output fails?**
-A: mp3 requires `pydub` and `ffmpeg`. Install: `pip install pydub` and ensure system has ffmpeg. Or use default wav format.
-
-**Q: onnxruntime install fails on Termux?**
-A: Recommended to use proot-distro Ubuntu environment, or try `pkg install onnxruntime` (TUR repo) in native Termux.
-
 ## Multi-Language UI
 
 The WebUI supports English and Chinese interface switching. Language files are in `locales/`:
@@ -325,6 +351,36 @@ To add a new language:
 1. Copy `locales/en.json` to `locales/<lang>.json`
 2. Translate all values
 3. Add the language option to the `<select id="langSelect">` in `templates/index.html`
+
+## Performance Optimization
+
+- **x86 Linux/Windows**: auto-use all CPU cores, multi-thread acceleration
+- **Termux/ARM**: auto-limit to `cores-1` threads to avoid overheating
+- Model load takes ~4-10 seconds (depends on disk speed)
+- Runtime memory ~750MB-1.2GB
+
+## FAQ
+
+**Q: Blank page or 500 after launch?**
+A: Check terminal errors, usually missing model files. Ensure `models/` directory is complete, or re-run `start.sh` to auto-download.
+
+**Q: OpenAI endpoint returns 401?**
+A: `api_keys` is configured in `config.json`, requests need `Authorization: Bearer <key>`. Or set `api_keys` to `[]` to disable auth.
+
+**Q: How to change default voice?**
+A: Modify `default_voice` field in `config.json`, restart service.
+
+**Q: mp3 output fails?**
+A: mp3 requires `pydub` and `ffmpeg`. Install: `pip install pydub` and ensure system has ffmpeg. Or use default wav format.
+
+**Q: onnxruntime install fails on Termux?**
+A: Recommended to use proot-distro Ubuntu environment, or try `pkg install onnxruntime` (TUR repo) in native Termux.
+
+**Q: Model download is slow or fails?**
+A: China users select `1. China` to use mirror; international users select `2. Other countries`. You can also manually download with `huggingface-cli download`.
+
+**Q: GPU version runtime error?**
+A: Ensure CUDA and cuDNN are installed, and `onnxruntime-gpu` version matches CUDA version. Choose CPU version if unsure.
 
 ## License
 

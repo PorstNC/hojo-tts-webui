@@ -18,6 +18,8 @@
 - **默认音色** — OpenAI 接口默认使用 `hojo_zh_f_02`（中文女声2）
 - **跨平台** — Windows / Linux 一键启动脚本，自动检测依赖
 - **多语言界面** — 英文 / 中文界面切换，语言文件放在 `locales/` 目录
+- **自动模型下载** — 启动脚本自动检测模型，缺失时交互选择区域从 HuggingFace 下载
+- **GPU/CPU 自适应** — 启动时选择 GPU（onnxruntime-gpu）或 CPU（onnxruntime）运行时
 
 ## 硬件要求
 
@@ -30,15 +32,15 @@
 
 ## 快速开始
 
-### Linux
+### Linux / Termux
 
 ```bash
-unzip hojo-tts-webui.zip
+git clone https://github.com/PorstNC/hojo-tts-webui.git
 cd hojo-tts-webui
 bash start.sh
 ```
 
-脚本自动检测：虚拟环境不存在则创建 → 依赖缺失则安装 → 模型完整则启动。
+脚本自动执行：创建虚拟环境 → 安装基础依赖 → 选择 GPU/CPU 运行时 → 检测模型（缺失则交互选择区域下载）→ 启动服务。
 
 ### Windows
 
@@ -54,7 +56,8 @@ start.bat
 ```bash
 python3 -m venv venv
 source venv/bin/activate    # Windows: venv\Scripts\activate
-pip install numpy soundfile tokenizers onnxruntime flask
+pip install -r requirements.txt
+pip install onnxruntime      # CPU 版；GPU 用户用 pip install onnxruntime-gpu
 python3 app.py --host 0.0.0.0 --port 7860
 ```
 
@@ -62,6 +65,53 @@ python3 app.py --host 0.0.0.0 --port 7860
 - **WebUI**: http://127.0.0.1:7860
 - **站内API**: `POST http://127.0.0.1:7860/api/tts`
 - **OpenAI API**: `POST http://127.0.0.1:7860/v1/audio/speech`
+
+## 模型下载
+
+> 本仓库不包含模型权重（约 330MB），启动脚本会自动检测并下载。
+
+### 自动下载（推荐）
+
+运行 `start.sh` 或 `start.bat`，当检测到模型文件缺失时，会交互询问：
+
+1. **选择区域**：
+   - `1. China` — 使用 HF 镜像站（hf-mirror.com），国内速度快
+   - `2. Other countries` — 使用 HF 官网（huggingface.co）
+
+2. **选择运行时**：
+   - `1. CPU` — 安装 `onnxruntime`，所有设备通用
+   - `2. GPU` — 安装 `onnxruntime-gpu`，需要 NVIDIA GPU + CUDA
+
+模型仓库：`HojoAI/Hojo-TTS-Light-40M`
+
+### 手动下载
+
+如果自动下载失败，可以手动下载：
+
+```bash
+pip install huggingface_hub
+
+# 国内用户（镜像站）
+export HF_ENDPOINT=https://hf-mirror.com
+huggingface-cli download HojoAI/Hojo-TTS-Light-40M --local-dir ./models
+
+# 海外用户（官网）
+huggingface-cli download HojoAI/Hojo-TTS-Light-40M --local-dir ./models
+```
+
+下载完成后，目录结构应为：
+
+```
+hojo-tts-webui/
+└── models/
+    ├── Hojo-TTS-Light-40M-decoder.onnx
+    ├── Hojo-TTS-Light-40M-fine_local.onnx
+    ├── Hojo-TTS-Light-40M-llm.onnx
+    ├── Hojo-TTS-Light-40M-voice.npz
+    ├── tokenizer.json
+    ├── tokenizer_config.json
+    └── config.json
+```
 
 ## 项目结构
 
@@ -71,10 +121,11 @@ hojo-tts-webui/
 ├── infer.py                # TTS 高层 API (官方)
 ├── onnx_model.py           # ONNX 推理引擎 (官方)
 ├── config.json             # 配置文件 (模型名/默认音色/API密钥/音色映射)
-├── requirements.txt        # Python 依赖
-├── start.sh                # Linux 一键启动 (自动检测venv和依赖)
-├── start.bat               # Windows 一键启动
-├── models/                 # 模型文件 (约 330MB，已预下载)
+├── requirements.txt        # Python 基础依赖 (不含 onnxruntime)
+├── start.sh                # Linux 一键启动 (自动下载模型+GPU/CPU选择)
+├── start.bat               # Windows 一键启动 (自动下载模型+GPU/CPU选择)
+├── locales/                # 多语言文件 (en.json, zh.json)
+├── models/                 # 模型文件 (启动时自动下载)
 ├── templates/index.html    # 前端页面
 ├── static/                 # CSS + JS
 └── outputs/                # 生成的音频 (运行时创建)
@@ -287,13 +338,6 @@ python3 app.py [选项]
 PORT=8080 HOST=127.0.0.1 bash start.sh
 ```
 
-## 性能优化
-
-- **x86 Linux/Windows**：自动使用全部 CPU 核心，多线程加速
-- **Termux/ARM**：自动限制为 `核数-1` 线程，避免手机过热卡死
-- 模型加载约需 4-10 秒（取决于磁盘速度）
-- 运行时内存约 750MB-1.2GB
-
 ## 多语言界面
 
 WebUI 支持英文和中文界面切换。语言文件放在 `locales/` 目录：
@@ -308,10 +352,17 @@ WebUI 支持英文和中文界面切换。语言文件放在 `locales/` 目录�
 2. 翻译所有值
 3. 在 `templates/index.html` 的 `<select id="langSelect">` 中添加语言选项
 
+## 性能优化
+
+- **x86 Linux/Windows**：自动使用全部 CPU 核心，多线程加速
+- **Termux/ARM**：自动限制为 `核数-1` 线程，避免手机过热卡死
+- 模型加载约需 4-10 秒（取决于磁盘速度）
+- 运行时内存约 750MB-1.2GB
+
 ## 常见问题
 
 **Q: 启动后访问页面空白或 500？**
-A: 查看终端报错，通常是模型文件缺失。确保 `models/` 目录完整。
+A: 查看终端报错，通常是模型文件缺失。确保 `models/` 目录完整，或重新运行 `start.sh` 自动下载。
 
 **Q: OpenAI 接口返回 401？**
 A: `config.json` 中配置了 `api_keys`，请求需带 `Authorization: Bearer <密钥>`。或将 `api_keys` 设为 `[]` 关闭认证。
@@ -324,6 +375,12 @@ A: mp3 需要 `pydub` 和 `ffmpeg`。安装：`pip install pydub` 并确保系�
 
 **Q: Termux 上 onnxruntime 安装失败？**
 A: 推荐使用 proot-distro Ubuntu 环境，或在原生 Termux 中尝试 `pkg install onnxruntime`（TUR 仓库）。
+
+**Q: 模型下载很慢或失败？**
+A: 国内用户选择 `1. China` 使用镜像站；海外用户选择 `2. Other countries`。也可以手动用 `huggingface-cli download` 下载。
+
+**Q: GPU 版本运行报错？**
+A: 确保安装了 CUDA 和 cuDNN，且 `onnxruntime-gpu` 版本与 CUDA 版本匹配。不确定时选择 CPU 版本。
 
 ## 许可证
 

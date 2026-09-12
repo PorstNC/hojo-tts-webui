@@ -1,8 +1,9 @@
 @echo off
 chcp 65001 >nul 2>&1
 REM ============================================================
-REM  Hojo-TTS-Light-40M  Windows 启动脚本
-REM  自动检测虚拟环境和依赖，有则直接启动，无则安装后启动
+REM  Hojo-TTS-Light-40M  Windows Launcher
+REM  Auto-detect venv + deps, download model if missing,
+REM  choose GPU/CPU runtime, then start WebUI.
 REM ============================================================
 
 setlocal enabledelayedexpansion
@@ -12,102 +13,160 @@ set VENV_DIR=venv
 set PYTHON_BIN=python
 if "%HOST%"=="" set HOST=0.0.0.0
 if "%PORT%"=="" set PORT=7860
+set MODEL_REPO=HojoAI/Hojo-TTS-Light-40M
 
 echo ============================================
 echo   Hojo-TTS-Light-40M  WebUI + OpenAI API
 echo ============================================
 
-REM --- 1. 检测 Python ---
+REM --- 1. Check Python ---
 where %PYTHON_BIN% >nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未找到 python，请先安装 Python 3.10+
-    echo   下载地址: https://www.python.org/downloads/
-    echo   安装时请勾选 "Add Python to PATH"
+    echo [ERROR] python not found. Please install Python 3.10+
+    echo   Download: https://www.python.org/downloads/
+    echo   Check "Add Python to PATH" during install
     pause
     exit /b 1
 )
-for /f "tokens=*" %%i in ('%PYTHON_BIN% --version 2^>^&1') do echo [信息] Python: %%i
+for /f "tokens=*" %%i in ('%PYTHON_BIN% --version 2^>^&1') do echo [INFO] Python: %%i
 
-REM --- 2. 检测/创建虚拟环境 ---
+REM --- 2. Create / detect venv ---
 if not exist "%VENV_DIR%\Scripts\activate.bat" (
-    echo [步骤] 创建虚拟环境 venv ...
+    echo [STEP] Creating virtual environment venv ...
     %PYTHON_BIN% -m venv %VENV_DIR%
     if errorlevel 1 (
-        echo [错误] 虚拟环境创建失败
+        echo [ERROR] Failed to create virtual environment
         pause
         exit /b 1
     )
-    echo [步骤] 虚拟环境创建完成
+    echo [STEP] Virtual environment created
 ) else (
-    echo [信息] 虚拟环境已存在，跳过创建
+    echo [INFO] Virtual environment exists, skipping
 )
 
-REM --- 3. 激活虚拟环境 ---
+REM --- 3. Activate venv ---
 call "%VENV_DIR%\Scripts\activate.bat"
 
-REM --- 4. 检测依赖是否已安装 ---
-echo [步骤] 检查依赖...
-set DEPS_INSTALLED=true
-for %%P in (numpy soundfile tokenizers onnxruntime flask) do (
-    python -c "import %%P" >nul 2>&1
-    if errorlevel 1 (
-        echo   [缺失] %%P
-        set DEPS_INSTALLED=false
+REM --- 4. Install base dependencies (without onnxruntime) ---
+echo [STEP] Installing base dependencies ...
+python -m pip install --upgrade pip -q
+python -m pip install -r requirements.txt
+if errorlevel 1 (
+    echo [ERROR] Failed to install base dependencies
+    pause
+    exit /b 1
+)
+echo [STEP] Base dependencies installed
+
+REM --- 5. Check / install onnxruntime (GPU or CPU) ---
+set RUNTIME_INSTALLED=false
+python -c "import onnxruntime" >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] onnxruntime already installed
+    set RUNTIME_INSTALLED=true
+)
+python -c "import onnxruntime_gpu" >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] onnxruntime-gpu already installed
+    set RUNTIME_INSTALLED=true
+)
+
+if "%RUNTIME_INSTALLED%"=="false" (
+    echo.
+    echo ============================================
+    echo   Choose ONNX Runtime:
+    echo     1. CPU  (onnxruntime)       - works everywhere
+    echo     2. GPU  (onnxruntime-gpu)   - requires NVIDIA GPU + CUDA
+    echo ============================================
+    set /p RT_CHOICE=Enter your choice [1/2] (default 1^): 
+    if "!RT_CHOICE!"=="2" (
+        echo [STEP] Installing onnxruntime-gpu ...
+        python -m pip install onnxruntime-gpu
+        if errorlevel 1 (
+            echo [ERROR] Failed to install onnxruntime-gpu
+            pause
+            exit /b 1
+        )
+        echo [STEP] onnxruntime-gpu installed
     ) else (
-        echo   [OK]   %%P
+        echo [STEP] Installing onnxruntime (CPU) ...
+        python -m pip install onnxruntime
+        if errorlevel 1 (
+            echo [ERROR] Failed to install onnxruntime
+            pause
+            exit /b 1
+        )
+        echo [STEP] onnxruntime (CPU) installed
     )
 )
 
-REM --- 5. 安装缺失依赖 ---
-if "%DEPS_INSTALLED%"=="false" (
-    echo [步骤] 安装依赖 ...
-    python -m pip install --upgrade pip -q
-    python -m pip install numpy soundfile tokenizers onnxruntime flask
+REM --- 6. Check model files ---
+echo [STEP] Checking model files ...
+set MODEL_OK=true
+if not exist "models\Hojo-TTS-Light-40M-llm.onnx" set MODEL_OK=false
+if not exist "models\Hojo-TTS-Light-40M-fine_local.onnx" set MODEL_OK=false
+if not exist "models\Hojo-TTS-Light-40M-decoder.onnx" set MODEL_OK=false
+if not exist "models\Hojo-TTS-Light-40M-voice.npz" set MODEL_OK=false
+if not exist "models\tokenizer.json" set MODEL_OK=false
+if not exist "models\config.json" set MODEL_OK=false
+
+if "%MODEL_OK%"=="false" (
+    echo.
+    echo ============================================
+    echo   Model files not found. Download from HuggingFace.
+    echo.
+    echo   Select your region:
+    echo     1. China           - use HF mirror (hf-mirror.com)
+    echo     2. Other countries - use official HF (huggingface.co)
+    echo ============================================
+    set /p REGION_CHOICE=Enter your choice [1/2] (default 1^): 
+
+    if not exist "models" mkdir models
+
+    if "!REGION_CHOICE!"=="2" (
+        echo [STEP] Downloading from official HuggingFace ...
+        set HF_ENDPOINT=
+        python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='%MODEL_REPO%', local_dir='./models'); print('[STEP] Model download complete')"
+    ) else (
+        echo [STEP] Downloading from HF mirror (hf-mirror.com) ...
+        set HF_ENDPOINT=https://hf-mirror.com
+        python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='%MODEL_REPO%', local_dir='./models'); print('[STEP] Model download complete')"
+    )
+
     if errorlevel 1 (
-        echo [错误] 依赖安装失败
+        echo [ERROR] Model download failed. Please check network and retry.
         pause
         exit /b 1
     )
-    echo [步骤] 依赖安装完成
-) else (
-    echo [信息] 所有依赖已安装，跳过安装
-)
 
-REM --- 6. 检测模型文件 ---
-echo [步骤] 检查模型文件...
-set MODEL_OK=true
-for %%F in (
-    "models\Hojo-TTS-Light-40M-llm.onnx"
-    "models\Hojo-TTS-Light-40M-fine_local.onnx"
-    "models\Hojo-TTS-Light-40M-decoder.onnx"
-    "models\Hojo-TTS-Light-40M-voice.npz"
-    "models\tokenizer.json"
-    "models\config.json"
-) do (
-    if not exist %%F (
-        echo   [缺失] %%~F
-        set MODEL_OK=false
+    REM Re-check after download
+    echo [STEP] Re-checking model files ...
+    set MODEL_OK=true
+    if not exist "models\Hojo-TTS-Light-40M-llm.onnx" set MODEL_OK=false
+    if not exist "models\Hojo-TTS-Light-40M-fine_local.onnx" set MODEL_OK=false
+    if not exist "models\Hojo-TTS-Light-40M-decoder.onnx" set MODEL_OK=false
+    if not exist "models\Hojo-TTS-Light-40M-voice.npz" set MODEL_OK=false
+    if not exist "models\tokenizer.json" set MODEL_OK=false
+    if not exist "models\config.json" set MODEL_OK=false
+
+    if "%MODEL_OK%"=="false" (
+        echo [ERROR] Model download incomplete. Please check network and retry.
+        pause
+        exit /b 1
     )
-)
-if "%MODEL_OK%"=="false" (
-    echo.
-    echo [警告] 部分模型文件缺失！
-    echo   请确保 models\ 目录完整
-    echo.
-    set /p CONTINUE=仍然继续启动? (y/N^): 
-    if /i not "!CONTINUE!"=="y" exit /b 1
+    echo   [OK] Model files complete
 ) else (
-    echo   [OK] 模型文件完整
+    echo   [OK] Model files complete
 )
 
-REM --- 7. 启动 ---
+REM --- 7. Start ---
 echo.
 echo ============================================
-echo   启动服务...
+echo   Starting service ...
 echo   WebUI:     http://127.0.0.1:%PORT%
-echo   站内API:   POST http://127.0.0.1:%PORT%/api/tts
-echo   OpenAIAPI: POST http://127.0.0.1:%PORT%/v1/audio/speech
-echo   按 Ctrl+C 停止
+echo   Internal:  POST http://127.0.0.1:%PORT%/api/tts
+echo   OpenAI:    POST http://127.0.0.1:%PORT%/v1/audio/speech
+echo   Press Ctrl+C to stop
 echo ============================================
 echo.
 

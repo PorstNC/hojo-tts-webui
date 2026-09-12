@@ -5,5 +5,10 @@
 numpy>=1.24
 soundfile>=0.12
 tokenizers>=0.15
-onnxruntime>=1.17
 flask>=3.0
+huggingface_hub>=0.20
+
+# NOTE: onnxruntime is installed by start.sh / start.bat based on your GPU/CPU choice.
+#   - CPU:  pip install onnxruntime
+#   - GPU:  pip install onnxruntime-gpu
+# Do NOT add onnxruntime here directly — the launcher handles it.
