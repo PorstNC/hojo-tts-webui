@@ -384,6 +384,9 @@ A: China users select `1. China` to use mirror; international users select `2. O
 **Q: GPU version runtime error?**
 A: Ensure CUDA and cuDNN are installed, and `onnxruntime-gpu` version matches CUDA version. Choose CPU version if unsure.
 
+## Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=PorstNC/hojo-tts-webui&type=Date)](https://star-history.com/#PorstNC/hojo-tts-webui&Date)
+
 ## License
 
 - Model code: Apache License 2.0 (HojoAI)
