@@ -383,6 +383,9 @@ A: 国内用户选择 `1. China` 使用镜像站；海外用户选择 `2. Other 
 **Q: GPU 版本运行报错？**
 A: 确保安装了 CUDA 和 cuDNN，且 `onnxruntime-gpu` 版本与 CUDA 版本匹配。不确定时选择 CPU 版本。
 
+## 本项目star的情况
+[![Star History Chart](https://api.star-history.com/svg?repos=PorstNC/hojo-tts-webui&type=Date)](https://star-history.com/#PorstNC/hojo-tts-webui&Date)
+
 ## 许可证
 
 - 模型代码：Apache License 2.0 (HojoAI)
