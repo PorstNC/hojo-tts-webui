@@ -134,6 +134,9 @@
   const billingModePanel = document.getElementById("billingModePanel");
   const billingModeRadios = document.querySelectorAll('input[name="billingMode"]');
   const billingModeStatus = document.getElementById("billingModeStatus");
+  const internalHashPanel = document.getElementById("internalHashPanel");
+  const internalHashValue = document.getElementById("internalHashValue");
+  const copyInternalHashBtn = document.getElementById("copyInternalHashBtn");
 
   let currentAudioUrl = null;
   let adminPassword = "";
@@ -226,6 +229,93 @@
       h["X-Admin-Password"] = adminPassword;
     }
     return h;
+  }
+
+  // ===========================================================================
+  // Internal API hash signing (站内API 时间戳+哈希签名)
+  // ===========================================================================
+  const INTERNAL_HASH_STORAGE_KEY = "hojo_internal_hash";
+
+  function getInternalHash() {
+    if (window.API_HASH) return window.API_HASH;
+    return localStorage.getItem(INTERNAL_HASH_STORAGE_KEY) || "";
+  }
+
+  function setInternalHash(hash) {
+    if (hash) localStorage.setItem(INTERNAL_HASH_STORAGE_KEY, hash);
+    else localStorage.removeItem(INTERNAL_HASH_STORAGE_KEY);
+  }
+
+  async function sha256Hex(str) {
+    if (!window.crypto || !crypto.subtle) {
+      throw new Error("WebCrypto not available in this context (needs HTTPS or localhost).");
+    }
+    const data = new TextEncoder().encode(str);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function hmacSha256Hex(secret, msg) {
+    if (!window.crypto || !crypto.subtle) {
+      throw new Error("WebCrypto not available in this context (needs HTTPS or localhost).");
+    }
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw", enc.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false, ["sign"]
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, enc.encode(msg));
+    return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function signInternalRequest(bodyStr) {
+    const hash = getInternalHash();
+    if (!hash) {
+      throw new Error(t("tts.alert_no_hash"));
+    }
+    const ts = Math.floor(Date.now() / 1000);
+    const nonceBytes = new Uint8Array(16);
+    crypto.getRandomValues(nonceBytes);
+    const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    const bodySha = await sha256Hex(bodyStr);
+    const sig = await hmacSha256Hex(hash, ts + ":" + nonce + ":" + bodySha);
+    return { "X-Timestamp": String(ts), "X-Nonce": nonce, "X-Hash": sig };
+  }
+
+  async function loadInternalHash() {
+    if (!adminPasswordSet || !adminPassword) {
+      if (internalHashPanel) internalHashPanel.hidden = true;
+      return;
+    }
+    try {
+      const res = await fetch("/api/admin/internal-hash", { headers: adminHeaders() });
+      if (!res.ok) { if (internalHashPanel) internalHashPanel.hidden = true; return; }
+      const data = await res.json();
+      if (internalHashValue) internalHashValue.textContent = data.internal_hash || "—";
+      if (internalHashPanel) internalHashPanel.hidden = false;
+      // Remember it so the synthesize tab can sign from non-localhost browsers
+      setInternalHash(data.internal_hash || "");
+    } catch (_) {
+      if (internalHashPanel) internalHashPanel.hidden = true;
+    }
+  }
+
+  if (copyInternalHashBtn) {
+    copyInternalHashBtn.addEventListener("click", async () => {
+      const val = internalHashValue ? internalHashValue.textContent : "";
+      if (!val || val === "—") return;
+      try {
+        await navigator.clipboard.writeText(val);
+        showToast(t("settings.internal_hash_copied"));
+      } catch (_) {
+        // fallback
+        const ta = document.createElement("textarea");
+        ta.value = val; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta);
+        showToast(t("settings.internal_hash_copied"));
+      }
+    });
   }
 
   // ===========================================================================
@@ -372,10 +462,12 @@
 
     const t0 = performance.now();
     try {
+      const bodyStr = JSON.stringify({ text, voice });
+      const sigHeaders = await signInternalRequest(bodyStr);
       const res = await fetch("/api/tts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice }),
+        headers: Object.assign({ "Content-Type": "application/json" }, sigHeaders),
+        body: bodyStr,
       });
       if (!res.ok) {
         let errMsg = t("tts.alert_failed");
@@ -423,11 +515,13 @@
     if (adminPasswordSet && !adminPassword) {
       adminAuthPanel.hidden = false;
       addKeyPanel.style.display = "none";
+      if (internalHashPanel) internalHashPanel.hidden = true;
       keysList.innerHTML = '<p class="hint-text">' + t("settings.admin_please_verify") + "</p>";
       return;
     }
     adminAuthPanel.hidden = true;
     addKeyPanel.style.display = "";
+    loadInternalHash();
 
     keysList.innerHTML = '<p class="hint-text">' + t("settings.keys_loading") + "</p>";
     try {

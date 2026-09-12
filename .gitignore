@@ -5,3 +5,8 @@ outputs/
 *.log
 .DS_Store
 models/
+models/
+venv/
+__pycache__/
+*.pyc
+.api_secret

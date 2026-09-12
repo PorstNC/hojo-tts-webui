@@ -273,6 +273,7 @@ def sample_next_token(
     top_p: float,
     generated_ids: list[int],
     repetition_penalty: float,
+    rng: np.random.Generator | np.random.RandomState | None = None,
 ) -> int:
     row = logits.astype(np.float32).copy()
     if repetition_penalty != 1.0 and generated_ids:
@@ -296,7 +297,9 @@ def sample_next_token(
             mask[keep] = True
             probs = np.where(mask, probs, 0.0)
             probs = probs / probs.sum()
-    return int(np.random.choice(len(probs), p=probs))
+    if rng is None:
+        return int(np.random.choice(len(probs), p=probs))
+    return int(rng.choice(len(probs), p=probs))
 
 
 def _hann_window(win_length: int) -> np.ndarray:
@@ -426,6 +429,12 @@ class HojoTTSLightOnnx:
         self.models_dir = os.path.abspath(str(models_dir or DEFAULT_MODELS_DIR))
         voices_path = voices_npz or os.path.join(self.models_dir, VOICES_NPZ_NAME)
 
+        # Thread-local RNG: concurrent generate() calls never share global
+        # np.random state; each thread gets an independent generator seeded
+        # with the fixed seed (default 42) for reproducible output.
+        import threading as _threading
+        self._tl = _threading.local()
+
         lm_path = os.path.join(self.models_dir, LM_ONNX_NAME)
         if not os.path.isfile(lm_path):
             raise FileNotFoundError(f"Missing [{lm_path}].")
@@ -538,6 +547,7 @@ class HojoTTSLightOnnx:
         temperature: float,
         top_p: float,
         repetition_penalty: float,
+        rng: np.random.Generator | np.random.RandomState | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         seq_len = int(input_ids.shape[1])
         position_ids = np.arange(seq_len, dtype=np.int64)[None, :]
@@ -562,6 +572,7 @@ class HojoTTSLightOnnx:
             top_p=top_p,
             generated_ids=generated_ids,
             repetition_penalty=repetition_penalty,
+            rng=rng,
         )
         generated_ids.append(next_token)
 
@@ -588,6 +599,7 @@ class HojoTTSLightOnnx:
                 top_p=top_p,
                 generated_ids=generated_ids,
                 repetition_penalty=repetition_penalty,
+                rng=rng,
             )
             generated_ids.append(next_token)
             cur_len += 1
@@ -647,8 +659,18 @@ class HojoTTSLightOnnx:
         repetition_penalty: float = 1.1,
         seed: int = 42,
     ) -> np.ndarray:
-        """Synthesize speech and return a 1-D float32 waveform @ 24 kHz."""
-        np.random.seed(seed)
+        """Synthesize speech and return a 1-D float32 waveform @ 24 kHz.
+
+        Concurrency-safe: uses a per-thread RNG (never touches the shared
+        global np.random state), fixed seed=42 by default for reproducible
+        output. No lock is taken, so concurrent requests run in parallel.
+        """
+        # Thread-local RNG seeded with the fixed seed -> reproducible AND
+        # safe under concurrent inference (no shared global state).
+        rng = getattr(self._tl, "rng", None)
+        if rng is None:
+            rng = np.random.default_rng(seed)
+            self._tl.rng = rng
 
         prompt = build_speaker_prompt(text)
         input_ids = self.tokenizer(prompt, add_special_tokens=True, return_tensors="np")[
@@ -666,6 +688,7 @@ class HojoTTSLightOnnx:
             temperature=temperature,
             top_p=top_p,
             repetition_penalty=repetition_penalty,
+            rng=rng,
         )
         bits = self._bits_from_coarse(input_ids, generated, last_hidden, speaker_vec)
         mag, phase = self.codec_decode.run(None, {"bits": bits})

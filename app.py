@@ -20,15 +20,25 @@ import os
 import sys
 import time
 import uuid
+import hmac
+import hashlib
 import secrets
 import threading
 import platform
 from datetime import datetime
 from pathlib import Path
 from functools import wraps
+from collections import deque
 
 import numpy as np
 from flask import Flask, render_template, request, jsonify, send_file, Response, send_from_directory, abort
+
+# Fixed random seed for reproducibility.
+# NOTE: The ONNX inference engine (onnx_model.py) uses a per-thread RNG
+# (np.random.default_rng(42)) internally, so concurrent inference is
+# lock-free AND deterministic. This global seed only protects other code
+# paths that may use the shared np.random state.
+np.random.seed(42)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -41,6 +51,83 @@ MODELS_DIR = PROJECT_ROOT / "models"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = PROJECT_ROOT / "config.json"
+API_SECRET_PATH = PROJECT_ROOT / ".api_secret"
+
+# ---------------------------------------------------------------------------
+# Internal API hash (站内API哈希) — generated at startup, stored locally.
+# The operator sends this hash to requesters; every /api/tts call must carry
+# a timestamped HMAC signature proving knowledge of the hash.
+# ---------------------------------------------------------------------------
+INTERNAL_SIG_TTL = 300          # seconds; requests older than this are rejected
+_NONCE_MAX = 4096               # max remembered nonces (replay protection)
+
+
+def _load_or_create_api_hash() -> str:
+    """Load existing .api_secret or generate a new one (mode 0600)."""
+    try:
+        if API_SECRET_PATH.exists():
+            val = API_SECRET_PATH.read_text(encoding="utf-8").strip()
+            if val:
+                return val
+        val = secrets.token_hex(32)
+        API_SECRET_PATH.write_text(val + "\n", encoding="utf-8")
+        try:
+            os.chmod(API_SECRET_PATH, 0o600)
+        except OSError:
+            pass
+        print(f"[Auth] Generated new internal API hash file: {API_SECRET_PATH}")
+        return val
+    except Exception as exc:
+        print(f"[Auth] Warning: cannot persist API hash: {exc}", file=sys.stderr)
+        return secrets.token_hex(32)
+
+
+API_HASH = _load_or_create_api_hash()
+_used_nonces: deque = deque(maxlen=_NONCE_MAX * 4)
+_nonce_seen: set[str] = set()
+_nonce_lock = threading.Lock()
+
+
+def _is_nonce_reused(nonce: str) -> bool:
+    """Replay protection: reject a nonce seen within the TTL window."""
+    if not nonce:
+        return True
+    with _nonce_lock:
+        if nonce in _nonce_seen:
+            return True
+        _nonce_seen.add(nonce)
+        _used_nonces.append(nonce)
+        while len(_nonce_seen) > _NONCE_MAX:
+            _nonce_seen.pop()
+    return False
+
+
+def _compute_internal_sig(secret: str, ts: int, nonce: str, body_sha256: str) -> str:
+    msg = f"{ts}:{nonce}:{body_sha256}".encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def _verify_internal_request() -> tuple[bool, str]:
+    """Verify X-Timestamp / X-Nonce / X-Hash headers for /api/tts."""
+    try:
+        ts = int(request.headers.get("X-Timestamp", ""))
+    except (TypeError, ValueError):
+        return False, "Missing or invalid X-Timestamp header."
+    nonce = (request.headers.get("X-Nonce") or "").strip()
+    sig = (request.headers.get("X-Hash") or "").strip()
+    if not nonce or not sig:
+        return False, "Missing X-Nonce or X-Hash header."
+    now = int(time.time())
+    if abs(now - ts) > INTERNAL_SIG_TTL:
+        return False, "Request timestamp expired or too far in the future."
+    if _is_nonce_reused(nonce):
+        return False, "Nonce has already been used (replay attempt)."
+    body = request.get_data()
+    body_sha = hashlib.sha256(body).hexdigest()
+    expected = _compute_internal_sig(API_HASH, ts, nonce, body_sha)
+    if not hmac.compare_digest(expected, sig):
+        return False, "Invalid X-Hash signature."
+    return True, ""
 
 from infer import get_model  # noqa: E402
 
@@ -192,6 +279,30 @@ def check_and_consume_token_quota(key: str, token_count: int) -> tuple[bool, str
     return False, "Invalid API key."
 
 
+def rollback_quota(key: str) -> None:
+    """Roll back one consumed per-call unit if synthesis failed after deduction."""
+    with _config_lock:
+        for entry in CONFIG.get("api_keys", []):
+            if entry.get("key") == key and entry.get("used", 0) > 0:
+                entry["used"] = entry["used"] - 1
+                save_config(CONFIG)
+                print(f"[Billing] Rolled back 1 call for key {_mask_key(key)}")
+                return
+
+
+def rollback_token_quota(key: str, token_count: int) -> None:
+    """Roll back consumed tokens if synthesis failed after deduction."""
+    if token_count <= 0:
+        return
+    with _config_lock:
+        for entry in CONFIG.get("api_keys", []):
+            if entry.get("key") == key and entry.get("tokens_used", 0) >= token_count:
+                entry["tokens_used"] = entry["tokens_used"] - token_count
+                save_config(CONFIG)
+                print(f"[Billing] Rolled back {token_count} tokens for key {_mask_key(key)}")
+                return
+
+
 def get_api_key_from_request() -> str | None:
     """Extract Bearer API key from request headers."""
     auth_header = request.headers.get("Authorization", "")
@@ -233,6 +344,28 @@ print(f"[Config] Admin password: {'set' if ADMIN_PASSWORD else 'not set (localho
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+
+
+@app.after_request
+def _security_headers(resp: Response) -> Response:
+    """Add hardening headers on every response."""
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    # No inline-script CSP: the page injects window.API_HASH via a small
+    # script tag served from our own origin, so keep 'self' + inline allowed.
+    resp.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "media-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+        "base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+    )
+    # Never cache pages that may embed the internal API hash.
+    if request.path.startswith(("/", "/api/admin")):
+        resp.headers.setdefault("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        resp.headers.setdefault("Pragma", "no-cache")
+    return resp
 
 # Serve i18n locale files from /locales/
 LOCALES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "locales")
@@ -335,7 +468,8 @@ def require_admin(f):
     def decorated(*args, **kwargs):
         if ADMIN_PASSWORD:
             provided = request.headers.get("X-Admin-Password", "")
-            if provided != ADMIN_PASSWORD:
+            # constant-time comparison to avoid timing attacks
+            if not hmac.compare_digest(provided.encode("utf-8"), ADMIN_PASSWORD.encode("utf-8")):
                 return jsonify({"error": "Invalid admin password."}), 403
         else:
             # localhost-only when no password set
@@ -391,7 +525,12 @@ def _mask_key(key: str) -> str:
 # ===========================================================================
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # The internal API hash is injected only for localhost clients so the
+    # WebUI itself can sign /api/tts requests. Remote clients must obtain the
+    # hash from the admin settings page (or from the operator) and sign manually.
+    client_ip = request.remote_addr or ""
+    is_local = client_ip in ("127.0.0.1", "::1", "localhost")
+    return render_template("index.html", api_hash=API_HASH if is_local else "", is_local=is_local)
 
 
 # ===========================================================================
@@ -416,6 +555,11 @@ def api_voices():
 
 @app.route("/api/tts", methods=["POST"])
 def api_tts():
+    # Internal API requires timestamped HMAC signature (X-Timestamp/X-Nonce/X-Hash)
+    ok, err = _verify_internal_request()
+    if not ok:
+        return jsonify({"error": f"Internal API authentication failed: {err}"}), 401
+
     data = request.get_json(silent=True) or request.form
     text = (data.get("text") or "").strip()
     voice = data.get("voice") or DEFAULT_VOICE
@@ -454,6 +598,20 @@ def api_status():
         "billing_mode": BILLING_MODE,
         "admin_password_set": bool(ADMIN_PASSWORD),
         "openai_endpoint": "/v1/audio/speech",
+        "internal_api_auth": True,
+        "internal_sig_ttl": INTERNAL_SIG_TTL,
+    })
+
+
+@app.route("/api/admin/internal-hash", methods=["GET"])
+@require_admin
+def admin_internal_hash():
+    """Return the internal API hash (admin only) so the operator can send it
+    to requesters who need to sign /api/tts calls."""
+    return jsonify({
+        "internal_hash": API_HASH,
+        "signature_headers": ["X-Timestamp", "X-Nonce", "X-Hash"],
+        "ttl_seconds": INTERNAL_SIG_TTL,
     })
 
 
@@ -700,6 +858,8 @@ def openai_create_speech():
 
     # Get API key for quota tracking (if auth enabled)
     api_key = get_api_key_from_request() if AUTH_REQUIRED else None
+    # Tracks a deduction that must be rolled back if synthesis fails.
+    deduction = None  # ("per_call", key) | ("per_token", key, count)
 
     try:
         tts = get_tts()
@@ -726,6 +886,7 @@ def openai_create_speech():
                         "used": used,
                         "quota": quota
                     }}), 429
+                deduction = ("per_call", api_key)
             elif BILLING_MODE == "per_token":
                 allowed, reason = check_and_consume_token_quota(api_key, token_count)
                 if not allowed:
@@ -741,6 +902,7 @@ def openai_create_speech():
                         "token_quota": token_quota,
                         "requested_tokens": token_count
                     }}), 429
+                deduction = ("per_token", api_key, token_count)
 
         # --- Generate audio ---
         wav = tts.generate(text, voice=voice)
@@ -766,11 +928,23 @@ def openai_create_speech():
             buf = wav_to_buffer(wav, tts.sample_rate)
             mime, ext = "audio/wav", "wav"
 
+        # Success: the deduction stands (nothing to roll back).
+        deduction = None
         filename = f"speech_{uuid.uuid4().hex[:8]}.{ext}"
         quota_info = f", tokens={token_count}" if api_key else ""
         print(f"[OpenAI TTS] model={MODEL_NAME} voice={voice} speed={speed} fmt={ext} duration={duration:.1f}s{quota_info}")
         return send_file(buf, mimetype=mime, as_attachment=False, download_name=filename)
     except Exception as exc:
+        # Synthesis failed AFTER quota was deducted -> roll the deduction back
+        # so a failed request never burns the caller's quota.
+        if deduction is not None:
+            try:
+                if deduction[0] == "per_call":
+                    rollback_quota(deduction[1])
+                elif deduction[0] == "per_token":
+                    rollback_token_quota(deduction[1], deduction[2])
+            except Exception as rb_exc:
+                print(f"[Billing] Rollback failed: {rb_exc}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         return jsonify({"error": {"message": str(exc), "type": "internal_server_error"}}), 500
@@ -806,7 +980,7 @@ def main():
     print(f"  Hojo-TTS-Light-40M  WebUI + OpenAI API + 密钥管理")
     print(f"{'='*60}")
     print(f"  WebUI:     http://127.0.0.1:{args.port}")
-    print(f"  站内API:   POST http://127.0.0.1:{args.port}/api/tts")
+    print(f"  站内API:   POST http://127.0.0.1:{args.port}/api/tts  (需哈希签名)")
     print(f"  OpenAIAPI: POST http://127.0.0.1:{args.port}/v1/audio/speech")
     print(f"  模型列表:  GET  http://127.0.0.1:{args.port}/v1/models")
     print(f"  密钥管理:  WebUI 设置面板 或 /api/admin/keys")
@@ -815,6 +989,9 @@ def main():
     print(f"  API认证:   {'开启 (' + str(len(API_KEYS)) + '个密钥)' if AUTH_REQUIRED else '关闭'}")
     print(f"  管理密码:  {'已设置' if ADMIN_PASSWORD else '未设置 (仅本地可管理)'}")
     print(f"  平台:      {PLATFORM_LABEL}")
+    print(f"  内部API哈希: {API_HASH}")
+    print(f"    签名头: X-Timestamp + X-Nonce + X-Hash (HMAC-SHA256, TTL {INTERNAL_SIG_TTL}s)")
+    print(f"    获取:   cat {API_SECRET_PATH.name}   或   设置页(管理员)")
     print(f"{'='*60}\n")
 
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)

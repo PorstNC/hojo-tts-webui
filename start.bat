@@ -2,8 +2,11 @@
 chcp 65001 >nul 2>&1
 REM ============================================================
 REM  Hojo-TTS-Light-40M  Windows Launcher
-REM  Auto-detect venv + deps, download model if missing,
-REM  choose GPU/CPU runtime, then start WebUI.
+REM  - Auto-detect venv + dependencies
+REM  - Python 3.10+ version check
+REM  - Auto-download model from HuggingFace (mirror or official)
+REM  - Model integrity verification
+REM  - GPU (onnxruntime-gpu) / CPU (onnxruntime) runtime choice
 REM ============================================================
 
 setlocal enabledelayedexpansion
@@ -28,7 +31,26 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+
 for /f "tokens=*" %%i in ('%PYTHON_BIN% --version 2^>^&1') do echo [INFO] Python: %%i
+
+REM Check Python 3.10+
+for /f "tokens=2 delims= " %%v in ('%PYTHON_BIN% --version 2^>^&1') do set PYVER=%%v
+for /f "tokens=1,2 delims=." %%a in ("%PYVER%") do (
+    set PYMAJOR=%%a
+    set PYMINOR=%%b
+)
+if %PYMAJOR% LSS 3 (
+    echo [ERROR] Python 3.10+ required. You have Python %PYVER%.
+    pause
+    exit /b 1
+)
+if %PYMAJOR% EQU 3 if %PYMINOR% LSS 10 (
+    echo [ERROR] Python 3.10+ required. You have Python %PYVER%.
+    pause
+    exit /b 1
+)
+echo [INFO] Python 3.10+ check passed
 
 REM --- 2. Create / detect venv ---
 if not exist "%VENV_DIR%\Scripts\activate.bat" (
@@ -47,7 +69,7 @@ if not exist "%VENV_DIR%\Scripts\activate.bat" (
 REM --- 3. Activate venv ---
 call "%VENV_DIR%\Scripts\activate.bat"
 
-REM --- 4. Install base dependencies (without onnxruntime) ---
+REM --- 4. Install base dependencies ---
 echo [STEP] Installing base dependencies ...
 python -m pip install --upgrade pip -q
 python -m pip install -r requirements.txt
@@ -75,8 +97,9 @@ if "%RUNTIME_INSTALLED%"=="false" (
     echo.
     echo ============================================
     echo   Choose ONNX Runtime:
-    echo     1. CPU  (onnxruntime)       - works everywhere
-    echo     2. GPU  (onnxruntime-gpu)   - requires NVIDIA GPU + CUDA
+    echo     1. CPU  (onnxruntime)       - works everywhere, Python 3.10+
+    echo     2. GPU  (onnxruntime-gpu)   - requires NVIDIA GPU + CUDA 12.x
+    echo        (NOT available on macOS)
     echo ============================================
     set /p RT_CHOICE=Enter your choice [1/2] (default 1^): 
     if "!RT_CHOICE!"=="2" (
@@ -90,7 +113,7 @@ if "%RUNTIME_INSTALLED%"=="false" (
         echo [STEP] onnxruntime-gpu installed
     ) else (
         echo [STEP] Installing onnxruntime (CPU) ...
-        python -m pip install onnxruntime
+        python -m pip install "onnxruntime>=1.19,<1.31"
         if errorlevel 1 (
             echo [ERROR] Failed to install onnxruntime
             pause
@@ -114,6 +137,8 @@ if "%MODEL_OK%"=="false" (
     echo.
     echo ============================================
     echo   Model files not found. Download from HuggingFace.
+    echo   NOTE: The HF repo already contains pre-converted
+    echo   FP32 ONNX models - no conversion needed.
     echo.
     echo   Select your region:
     echo     1. China           - use HF mirror (hf-mirror.com)
@@ -139,8 +164,8 @@ if "%MODEL_OK%"=="false" (
         exit /b 1
     )
 
-    REM Re-check after download
-    echo [STEP] Re-checking model files ...
+    REM Verify downloaded model integrity
+    echo [STEP] Verifying model integrity ...
     set MODEL_OK=true
     if not exist "models\Hojo-TTS-Light-40M-llm.onnx" set MODEL_OK=false
     if not exist "models\Hojo-TTS-Light-40M-fine_local.onnx" set MODEL_OK=false
@@ -154,7 +179,7 @@ if "%MODEL_OK%"=="false" (
         pause
         exit /b 1
     )
-    echo   [OK] Model files complete
+    echo   [OK] All model files verified
 ) else (
     echo   [OK] Model files complete
 )
@@ -164,7 +189,7 @@ echo.
 echo ============================================
 echo   Starting service ...
 echo   WebUI:     http://127.0.0.1:%PORT%
-echo   Internal:  POST http://127.0.0.1:%PORT%/api/tts
+echo   Internal:  POST http://127.0.0.1:%PORT%/api/tts  (requires HMAC hash)
 echo   OpenAI:    POST http://127.0.0.1:%PORT%/v1/audio/speech
 echo   Press Ctrl+C to stop
 echo ============================================

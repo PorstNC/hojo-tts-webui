@@ -41,7 +41,8 @@
     "audio_duration": "Duration",
     "alert_no_text": "Please enter text to synthesize",
     "alert_no_voice": "Please select a voice",
-    "alert_failed": "Synthesis failed"
+    "alert_failed": "Synthesis failed",
+    "alert_no_hash": "Internal API hash unavailable: open the page from localhost, or copy the hash from the settings page (admin)."
   },
   "api": {
     "title": "API Endpoints",
@@ -67,7 +68,6 @@
     "admin_please_input": "Please enter admin password",
     "admin_wrong": "Wrong admin password, please try again.",
     "admin_please_verify": "Please verify admin password first.",
-
     "billing_title": "Billing Mode",
     "billing_hint": "Three modes are mutually exclusive. Only one can be active. Changes take effect immediately.",
     "billing_none": "Billing Off",
@@ -82,7 +82,6 @@
     "billing_load_failed": "Failed to load billing mode",
     "billing_switch_failed": "Switch failed",
     "billing_toast": "Billing mode switched",
-
     "add_key_title": "Add API Key",
     "key_name_label": "Key Name",
     "key_name_placeholder": "e.g.: My Project Key",
@@ -106,20 +105,17 @@
     "key_unnamed": "Unnamed Key",
     "key_quota_invalid": "Call quota must be -1 (unlimited) or a positive integer",
     "key_token_invalid": "Token quota must be -1 (unlimited) or a positive integer",
-
     "preset_1token": "1 Token",
     "preset_hundred": "100",
     "preset_thousand": "1K",
     "preset_ten_thousand": "10K",
     "preset_hundred_million": "100M",
     "preset_unlimited": "Unlimited",
-
     "keys_list_title": "API Keys",
     "keys_refresh": "Refresh",
     "keys_loading": "Loading...",
     "keys_none": "No API keys yet. Add a key to enable authentication for OpenAI endpoints (/v1/*).",
     "keys_load_failed": "Load failed",
-
     "key_quota_stat": "Call Quota",
     "key_used_stat": "Used",
     "key_remaining_stat": "Remaining",
@@ -128,7 +124,6 @@
     "key_token_used_stat": "Tokens Used",
     "key_token_remaining_stat": "Tokens Left",
     "key_billing_disabled": "Billing off, unlimited",
-
     "action_copy": "Copy Key",
     "action_quota": "Edit Quota",
     "action_reset": "Reset Usage",
@@ -136,7 +131,6 @@
     "action_reset_tokens": "Reset Tokens",
     "action_rename": "Rename",
     "action_delete": "Delete",
-
     "toast_copied": "Key copied to clipboard",
     "toast_deleted": "Key deleted",
     "toast_reset": "Call usage reset",
@@ -144,7 +138,6 @@
     "toast_quota_updated": "Call quota updated",
     "toast_token_updated": "Token quota updated",
     "toast_renamed": "Renamed",
-
     "confirm_delete": "Delete key {key}...?",
     "confirm_reset": "Reset this key's used count to 0?",
     "confirm_reset_tokens": "Reset this key's Token usage to 0?",
@@ -156,13 +149,16 @@
     "alert_reset_failed": "Reset failed",
     "alert_update_failed": "Update failed",
     "alert_rename_failed": "Rename failed",
-
     "info_title": "Admin Guide",
     "info_billing_mode": "Billing Mode: Three mutually exclusive options. \"Per-Call\" shows only call quota fields; \"Per-Token\" shows only Token quota fields; \"Billing Off\" hides all quota fields and all keys have unlimited calls.",
     "info_quota": "Call Quota: -1 means unlimited; a positive number is the max call count, decremented by 1 on each successful synthesis.",
     "info_token_quota": "Token Quota: -1 means unlimited; a positive number is decremented by the input text's Token count. Quick presets: 1/100/1K/10K/100M Tokens.",
     "info_over_quota": "Over Quota: Exhausted call quota returns 429; exhausted Token quota returns \"Text-to-speech model quota exhausted. Please renew or purchase Pro, or contact your model provider.\"",
     "info_admin": "Admin Access: When admin_password is not set, only localhost (127.0.0.1) can manage; when set, password is required.",
-    "info_api": "Internal endpoint (/api/tts) always requires no key; OpenAI endpoints (/v1/*) require key authentication."
+    "info_api": "Internal endpoint (/api/tts) always requires no key; OpenAI endpoints (/v1/*) require key authentication.",
+    "internal_hash_title": "Internal API Hash",
+    "internal_hash_hint": "The internal /api/tts endpoint requires a timestamped HMAC signature. Send this hash to requesters; they must pass X-Timestamp / X-Nonce / X-Hash headers. See README.",
+    "internal_hash_copy": "Copy",
+    "internal_hash_copied": "Hash copied"
   }
 }

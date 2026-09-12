@@ -1,6 +1,8 @@
 # Hojo-TTS-Light-40M WebUI + OpenAI-Compatible API
 
-A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS-Light](https://github.com/HojoAI/Hojo-TTS-Light). The model is pre-converted to FP32 ONNX format — no PyTorch required, runs on CPU. Includes a Web interface, internal API, and OpenAI-compatible TTS endpoint.
+A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS-Light](https://github.com/HojoAI/Hojo-TTS-Light). The model is pre-converted to FP32 ONNX format — no PyTorch required, runs on CPU. Includes a Web interface, internal API (HMAC hash authentication), and OpenAI-compatible TTS endpoint.
+
+> **Requirement: Python 3.10+** (tested on 3.10 / 3.11 / 3.12)
 
 ## Features
 
@@ -9,17 +11,20 @@ A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS
 - **Pure ONNX Runtime** — no GPU, no PyTorch needed
 - **Web UI** — Flask backend + responsive frontend, works on mobile and desktop
 - **OpenAI-compatible API** — `POST /v1/audio/speech`, works directly with OpenAI SDK
+- **Internal API HMAC auth** — `POST /api/tts` requires X-Timestamp/X-Nonce/X-Hash signature, secret generated at startup and stored locally, replay protection
 - **Model registration** — registered as `hojo-tts-light-40m`, queryable via `GET /v1/models`
 - **Multiple API keys** — visual management in WebUI settings, support add/delete/rename
 - **Billing mode switch** — WebUI slider three-way toggle: off / per-call / per-token, mutually exclusive, instant effect
 - **Per-call billing** — each key can set call count limit (-1=unlimited), auto-decrement, 429 on excess
 - **Token billing** — deduct by input text token count, supports 1/hundred/thousand/ten-thousand/hundred-million token tiers, custom prompt on excess
+- **Auto rollback on failure** — quota deducted before synthesis; if synthesis fails, deduction is automatically rolled back so failed requests never burn quota
 - **Usage statistics** — real-time per-call and token usage for each key, one-click reset separately
 - **Default voice** — OpenAI endpoint defaults to `hojo_zh_f_02` (Chinese female 2)
-- **Cross-platform** — one-click launch scripts for Windows / Linux, auto dependency detection
+- **Lock-free concurrent inference** — ONNX Runtime thread-safe, uses per-thread RNG, multiple requests run in parallel with no global lock
+- **Fixed random seed** — seed=42, deterministic output for the same input text+voice, reproducible
+- **Auto model download** — launcher auto-detects model, if missing interactively selects region (China mirror / international official) to download from HuggingFace
+- **Cross-platform** — one-click launch scripts for Windows / Linux / Termux, auto dependency detection
 - **Multi-language UI** — English / Chinese interface switch, language files in `locales/`
-- **Auto model download** — launcher auto-detects model, interactively selects region to download from HuggingFace if missing
-- **GPU/CPU adaptive** — choose GPU (onnxruntime-gpu) or CPU (onnxruntime) runtime at launch
 
 ## Hardware Requirements
 
@@ -32,6 +37,8 @@ A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS
 
 ## Quick Start
 
+> **Prerequisite: Python 3.10+** (tested on 3.10 / 3.11 / 3.12)
+
 ### Linux / Termux
 
 ```bash
@@ -40,7 +47,7 @@ cd hojo-tts-webui
 bash start.sh
 ```
 
-The script automatically: creates venv → installs base dependencies → chooses GPU/CPU runtime → checks model (downloads interactively if missing) → starts service.
+The script automatically: Python version check → creates venv → installs base dependencies → chooses CPU/GPU runtime → checks model (downloads interactively from HuggingFace if missing) → verifies model integrity → starts service.
 
 ### Windows
 
@@ -56,8 +63,7 @@ start.bat
 ```bash
 python3 -m venv venv
 source venv/bin/activate    # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-pip install onnxruntime      # CPU version; GPU users use pip install onnxruntime-gpu
+pip install numpy soundfile tokenizers onnxruntime flask
 python3 app.py --host 0.0.0.0 --port 7860
 ```
 
@@ -65,53 +71,6 @@ After launch, access:
 - **WebUI**: http://127.0.0.1:7860
 - **Internal API**: `POST http://127.0.0.1:7860/api/tts`
 - **OpenAI API**: `POST http://127.0.0.1:7860/v1/audio/speech`
-
-## Model Download
-
-> This repository does NOT include model weights (~330MB). The launcher will auto-detect and download them.
-
-### Auto Download (Recommended)
-
-Run `start.sh` or `start.bat`. When model files are missing, it will interactively ask:
-
-1. **Select region**:
-   - `1. China` — use HF mirror (hf-mirror.com), fast in mainland China
-   - `2. Other countries` — use official HF (huggingface.co)
-
-2. **Select runtime**:
-   - `1. CPU` — install `onnxruntime`, works everywhere
-   - `2. GPU` — install `onnxruntime-gpu`, requires NVIDIA GPU + CUDA
-
-Model repo: `HojoAI/Hojo-TTS-Light-40M`
-
-### Manual Download
-
-If auto-download fails, you can download manually:
-
-```bash
-pip install huggingface_hub
-
-# China users (mirror)
-export HF_ENDPOINT=https://hf-mirror.com
-huggingface-cli download HojoAI/Hojo-TTS-Light-40M --local-dir ./models
-
-# International users (official)
-huggingface-cli download HojoAI/Hojo-TTS-Light-40M --local-dir ./models
-```
-
-After download, folder structure should be:
-
-```
-hojo-tts-webui/
-└── models/
-    ├── Hojo-TTS-Light-40M-decoder.onnx
-    ├── Hojo-TTS-Light-40M-fine_local.onnx
-    ├── Hojo-TTS-Light-40M-llm.onnx
-    ├── Hojo-TTS-Light-40M-voice.npz
-    ├── tokenizer.json
-    ├── tokenizer_config.json
-    └── config.json
-```
 
 ## Project Structure
 
@@ -121,11 +80,11 @@ hojo-tts-webui/
 ├── infer.py                # TTS high-level API (official)
 ├── onnx_model.py           # ONNX inference engine (official)
 ├── config.json             # Config file (model name/default voice/API keys/voice map)
-├── requirements.txt        # Python base dependencies (without onnxruntime)
-├── start.sh                # Linux one-click launch (auto model download + GPU/CPU choice)
-├── start.bat               # Windows one-click launch (auto model download + GPU/CPU choice)
+├── requirements.txt        # Python dependencies
+├── start.sh                # Linux one-click launch (auto venv + dependency detection)
+├── start.bat               # Windows one-click launch
 ├── locales/                # Multi-language files (en.json, zh.json)
-├── models/                 # Model files (auto-downloaded at launch)
+├── models/                 # Model files (~330MB, pre-downloaded)
 ├── templates/index.html    # Frontend page
 ├── static/                 # CSS + JS
 └── outputs/                # Generated audio (created at runtime)
@@ -217,17 +176,46 @@ curl -X POST http://localhost:7860/api/admin/billing-mode \
 
 ## API Documentation
 
-### 1. Internal TTS (key-free)
+### 1. Internal TTS (HMAC hash authentication)
 
+The internal API requires a timestamped HMAC signature to prevent unauthorized access and replay attacks.
+
+**Get the secret**: After admin login, call `GET /api/admin/internal-hash` to retrieve `internal_hash`.
+
+**Required headers**:
 ```
-POST /api/tts
-Content-Type: application/json
+X-Timestamp: Current Unix timestamp (seconds)
+X-Nonce: Random string (unique per request, replay protection)
+X-Hash: HMAC-SHA256(secret, "timestamp:nonce:sha256(body)")
+```
 
+**Request body**:
+```json
 {
   "text": "text to synthesize",
   "voice": "hojo_zh_f_02"
 }
 ```
+
+**Signature example (Python)**:
+```python
+import hmac, hashlib, time, secrets, json, requests
+
+SECRET = "your_internal_hash"
+ts = str(int(time.time()))
+nonce = secrets.token_hex(16)
+body = json.dumps({"text": "Hello", "voice": "hojo_zh_f_02"})
+body_sha = hashlib.sha256(body.encode()).hexdigest()
+sig = hmac.new(SECRET.encode(), f"{ts}:{nonce}:{body_sha}".encode(), hashlib.sha256).hexdigest()
+
+resp = requests.post("http://127.0.0.1:7860/api/tts",
+    headers={"X-Timestamp": ts, "X-Nonce": nonce, "X-Hash": sig, "Content-Type": "application/json"},
+    data=body)
+```
+
+- Timestamp validity window: 300 seconds
+- Nonce deduplication: last 4096 nonces cannot be reused
+- Authentication failure returns 401
 
 Returns: `audio/wav` binary audio stream.
 
@@ -338,20 +326,6 @@ Environment variables:
 PORT=8080 HOST=127.0.0.1 bash start.sh
 ```
 
-## Multi-Language UI
-
-The WebUI supports English and Chinese interface switching. Language files are in `locales/`:
-
-- `locales/en.json` — English translations
-- `locales/zh.json` — Chinese translations
-
-Use the language selector at the top-right of the page to switch. Selection is saved in localStorage and persists across sessions.
-
-To add a new language:
-1. Copy `locales/en.json` to `locales/<lang>.json`
-2. Translate all values
-3. Add the language option to the `<select id="langSelect">` in `templates/index.html`
-
 ## Performance Optimization
 
 - **x86 Linux/Windows**: auto-use all CPU cores, multi-thread acceleration
@@ -362,7 +336,7 @@ To add a new language:
 ## FAQ
 
 **Q: Blank page or 500 after launch?**
-A: Check terminal errors, usually missing model files. Ensure `models/` directory is complete, or re-run `start.sh` to auto-download.
+A: Check terminal errors, usually missing model files. Ensure `models/` directory is complete.
 
 **Q: OpenAI endpoint returns 401?**
 A: `api_keys` is configured in `config.json`, requests need `Authorization: Bearer <key>`. Or set `api_keys` to `[]` to disable auth.
@@ -376,11 +350,19 @@ A: mp3 requires `pydub` and `ffmpeg`. Install: `pip install pydub` and ensure sy
 **Q: onnxruntime install fails on Termux?**
 A: Recommended to use proot-distro Ubuntu environment, or try `pkg install onnxruntime` (TUR repo) in native Termux.
 
-**Q: Model download is slow or fails?**
-A: China users select `1. China` to use mirror; international users select `2. Other countries`. You can also manually download with `huggingface-cli download`.
+## Multi-Language UI
 
-**Q: GPU version runtime error?**
-A: Ensure CUDA and cuDNN are installed, and `onnxruntime-gpu` version matches CUDA version. Choose CPU version if unsure.
+The WebUI supports English and Chinese interface switching. Language files are in `locales/`:
+
+- `locales/en.json` — English translations
+- `locales/zh.json` — Chinese translations
+
+Use the language selector at the top-right of the page to switch. Selection is saved in localStorage and persists across sessions.
+
+To add a new language:
+1. Copy `locales/en.json` to `locales/<lang>.json`
+2. Translate all values
+3. Add the language option to the `<select id="langSelect">` in `templates/index.html`
 
 ## License
 

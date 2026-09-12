@@ -41,7 +41,8 @@
     "audio_duration": "音频时长",
     "alert_no_text": "请输入要合成的文本",
     "alert_no_voice": "请选择音色",
-    "alert_failed": "合成失败"
+    "alert_failed": "合成失败",
+    "alert_no_hash": "站内 API 哈希不可用：请从本机（localhost）访问页面，或在设置页(管理员)复制内部 API 哈希。"
   },
   "api": {
     "title": "API 接口",
@@ -67,7 +68,6 @@
     "admin_please_input": "请输入管理密码",
     "admin_wrong": "管理密码错误，请重新输入。",
     "admin_please_verify": "请先验证管理密码。",
-
     "billing_title": "计费模式",
     "billing_hint": "三种模式互斥，只能启用一种。切换即时生效。",
     "billing_none": "关闭计费",
@@ -82,7 +82,6 @@
     "billing_load_failed": "加载计费模式失败",
     "billing_switch_failed": "切换失败",
     "billing_toast": "计费模式已切换",
-
     "add_key_title": "添加 API 密钥",
     "key_name_label": "密钥名称",
     "key_name_placeholder": "例如：我的项目密钥",
@@ -106,20 +105,17 @@
     "key_unnamed": "未命名密钥",
     "key_quota_invalid": "按次额度必须是 -1（无限）或正整数",
     "key_token_invalid": "Token额度必须是 -1（无限）或正整数",
-
     "preset_1token": "1 Token",
     "preset_hundred": "百",
     "preset_thousand": "千",
     "preset_ten_thousand": "万",
     "preset_hundred_million": "亿",
     "preset_unlimited": "无限",
-
     "keys_list_title": "API 密钥列表",
     "keys_refresh": "刷新",
     "keys_loading": "加载中...",
     "keys_none": "暂无 API 密钥。添加密钥后，OpenAI 接口（/v1/*）将启用认证。",
     "keys_load_failed": "加载失败",
-
     "key_quota_stat": "按次额度",
     "key_used_stat": "已用",
     "key_remaining_stat": "剩余",
@@ -128,7 +124,6 @@
     "key_token_used_stat": "已用Token",
     "key_token_remaining_stat": "剩余Token",
     "key_billing_disabled": "计费已关闭，无限调用",
-
     "action_copy": "复制密钥",
     "action_quota": "修改额度",
     "action_reset": "重置用量",
@@ -136,7 +131,6 @@
     "action_reset_tokens": "重置Token",
     "action_rename": "重命名",
     "action_delete": "删除",
-
     "toast_copied": "密钥已复制到剪贴板",
     "toast_deleted": "密钥已删除",
     "toast_reset": "次用量已重置",
@@ -144,7 +138,6 @@
     "toast_quota_updated": "次额度已更新",
     "toast_token_updated": "Token额度已更新",
     "toast_renamed": "已重命名",
-
     "confirm_delete": "确定删除密钥 {key}... 吗？",
     "confirm_reset": "确定重置该密钥的已用次数为 0？",
     "confirm_reset_tokens": "确定重置该密钥的 Token 用量为 0？",
@@ -156,13 +149,16 @@
     "alert_reset_failed": "重置失败",
     "alert_update_failed": "更新失败",
     "alert_rename_failed": "重命名失败",
-
     "info_title": "管理说明",
     "info_billing_mode": "计费模式：三选一互斥。选择\"按次计费\"则只显示按次额度字段；选择\"按Token计费\"则只显示Token额度字段；选择\"关闭计费\"则不显示额度字段，所有密钥无限调用。",
     "info_quota": "按次额度：-1 表示无限调用；正数表示最大调用次数，每次成功合成扣减 1 次。",
     "info_token_quota": "Token 额度：-1 表示无限；正数按输入文本的 Token 数扣减，快捷档位：1/百/千/万/亿 Token。",
     "info_over_quota": "超额：按次额度用完返回 429；Token 额度用完返回提示\"文本转语音模型额度已用完 请进行续费或者购买Pro版 或者联系你的模型提供商\"。",
     "info_admin": "管理权限：未设置 admin_password 时仅本机（127.0.0.1）可管理；设置后需输入密码。",
-    "info_api": "站内接口（/api/tts）始终免密钥；OpenAI 接口（/v1/*）需密钥认证。"
+    "info_api": "站内接口（/api/tts）始终免密钥；OpenAI 接口（/v1/*）需密钥认证。",
+    "internal_hash_title": "站内 API 哈希",
+    "internal_hash_hint": "站内合成接口 /api/tts 需要时间戳+哈希签名。把下面的哈希发给请求方，请求方携带 X-Timestamp / X-Nonce / X-Hash 头调用。签名方式见 README。",
+    "internal_hash_copy": "复制",
+    "internal_hash_copied": "哈希已复制"
   }
 }

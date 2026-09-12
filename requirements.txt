@@ -1,14 +1,26 @@
 # Hojo-TTS-Light-40M WebUI — runtime dependencies
-# Python >= 3.10
-# Models are pre-converted to FP32, so the 'onnx' package is NOT needed at runtime.
+# Python >= 3.10 (required; tested on 3.10, 3.11, 3.12)
+# Models are pre-converted to FP32 ONNX, so the 'onnx' package is NOT needed at runtime.
 
-numpy>=1.24
+numpy>=1.24,<2.2
 soundfile>=0.12
 tokenizers>=0.15
 flask>=3.0
 huggingface_hub>=0.20
 
 # NOTE: onnxruntime is installed by start.sh / start.bat based on your GPU/CPU choice.
-#   - CPU:  pip install onnxruntime
-#   - GPU:  pip install onnxruntime-gpu
+#   - CPU:  pip install "onnxruntime>=1.19,<1.31"  (Python 3.10+ compatible)
+#   - GPU:  pip install onnxruntime-gpu               (requires NVIDIA GPU + CUDA 12.x)
 # Do NOT add onnxruntime here directly — the launcher handles it.
+
+# ------------------------------------------------------------------
+# Model conversion (OPTIONAL — only needed if you re-export the ONNX
+# model yourself, e.g. from PyTorch with torch.onnx.export).
+# The HF repo (HojoAI/Hojo-TTS-Light-40M) already ships pre-converted
+# FP32 ONNX models, so most users do NOT need these.
+# Latest stable versions as of 2026-09:
+#   - onnx 1.22.0            (requires Python >= 3.10)
+#   - onnxruntime 1.30.0     (requires Python >= 3.11)
+#   - onnxruntime 1.19.x     (CUDA 12.x companion, Python 3.10 OK)
+# ------------------------------------------------------------------
+# onnx>=1.17,<1.23

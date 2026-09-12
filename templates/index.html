@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title data-i18n="app.title">Hojo TTS Light 40M — WebUI</title>
 <link rel="stylesheet" href="/static/style.css">
+{% if api_hash %}
+<script>window.API_HASH = "{{ api_hash }}";</script>
+{% endif %}
 </head>
 <body>
 <div class="container">
@@ -151,6 +154,18 @@
           </label>
         </div>
         <div id="billingModeStatus" class="hint-text" style="margin-top:8px"></div>
+      </div>
+
+      <!-- Internal API Hash (admin visible) -->
+      <div class="panel" id="internalHashPanel" hidden>
+        <h3 data-i18n="settings.internal_hash_title">站内 API 哈希</h3>
+        <p class="hint-text" data-i18n="settings.internal_hash_hint">站内合成接口 /api/tts 需要时间戳 + 哈希签名。把下面的哈希发给请求方，请求方携带 X-Timestamp / X-Nonce / X-Hash 调用。签名方式见 README。</p>
+        <div class="form-row">
+          <div class="form-group" style="flex:1">
+            <code id="internalHashValue" class="hash-value">—</code>
+          </div>
+          <button id="copyInternalHashBtn" class="btn btn-secondary" data-i18n="settings.internal_hash_copy">复制</button>
+        </div>
       </div>
 
       <!-- Add Key Form -->
