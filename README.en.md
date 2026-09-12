@@ -1,5 +1,7 @@
 # Hojo-TTS-Light-40M WebUI + OpenAI-Compatible API
 
+中文文档 [文档](https://github.com/PorstNC/hojo-tts-webui/blob/main/README.md)
+
 A lightweight Chinese/English speech synthesis service based on [HojoAI/Hojo-TTS-Light](https://github.com/HojoAI/Hojo-TTS-Light). The model is pre-converted to FP32 ONNX format — no PyTorch required, runs on CPU. Includes a Web interface, internal API (HMAC hash authentication), and OpenAI-compatible TTS endpoint.
 
 > **Requirement: Python 3.10+** (tested on 3.10 / 3.11 / 3.12)
@@ -363,6 +365,8 @@ To add a new language:
 1. Copy `locales/en.json` to `locales/<lang>.json`
 2. Translate all values
 3. Add the language option to the `<select id="langSelect">` in `templates/index.html`
+## Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=PorstNC/hojo-tts-webui&type=Date)](https://star-history.com/#PorstNC/hojo-tts-webui&Date)
 
 ## License
 
