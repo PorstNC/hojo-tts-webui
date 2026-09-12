@@ -1,0 +1,9 @@
+# Hojo-TTS-Light-40M WebUI — runtime dependencies
+# Python >= 3.10
+# Models are pre-converted to FP32, so the 'onnx' package is NOT needed at runtime.
+
+numpy>=1.24
+soundfile>=0.12
+tokenizers>=0.15
+onnxruntime>=1.17
+flask>=3.0

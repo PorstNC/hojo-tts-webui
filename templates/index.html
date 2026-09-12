@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="app.title">Hojo TTS Light 40M — WebUI</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+  <header class="header">
+    <div class="header-left">
+      <h1>Hojo TTS Light <span class="badge">40M</span></h1>
+      <p class="subtitle" data-i18n="app.subtitle">轻量级中英文语音合成 · ONNX Runtime · 24kHz</p>
+    </div>
+    <div class="header-right">
+      <label class="lang-label" data-i18n="lang.switch">语言</label>
+      <select id="langSelect" class="lang-select">
+        <option value="zh" data-i18n="lang.zh">中文</option>
+        <option value="en" data-i18n="lang.en">English</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="status-bar" id="statusBar">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText" data-i18n="status.loading_model">正在加载模型...</span>
+  </div>
+
+  <!-- Tab Navigation -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="tts" data-i18n="tabs.tts">语音合成</button>
+    <button class="tab-btn" data-tab="settings" data-i18n="tabs.settings">设置 · API密钥</button>
+  </div>
+
+  <main class="main">
+    <!-- ============ TAB: TTS ============ -->
+    <div class="tab-content active" id="tab-tts">
+      <div class="panel">
+        <div class="form-group">
+          <label for="textInput"><span data-i18n="tts.input_label">输入文本</span> <span class="hint" id="charCount">0 / 20000</span></label>
+          <textarea id="textInput" rows="6" data-i18n-placeholder="tts.input_placeholder" placeholder="在此输入要合成的文本，支持中英文混合...">你好，欢迎使用 Hojo TTS Light 40M 本地语音合成系统。本模型支持中英文混合朗读，无需联网，完全在本地运行。</textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="voiceSelect" data-i18n="tts.voice_label">音色</label>
+            <select id="voiceSelect">
+              <option value="" data-i18n="tts.voice_loading">加载中...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <button id="synthesizeBtn" class="btn btn-primary" disabled>
+            <span class="btn-text" data-i18n="tts.synthesize">合成语音</span>
+            <span class="btn-spinner" hidden></span>
+          </button>
+          <button id="clearBtn" class="btn btn-secondary" data-i18n="tts.clear">清空</button>
+        </div>
+
+        <div class="info-row" id="infoRow" hidden>
+          <span id="genTime"></span>
+          <span id="audioDuration"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="resultPanel" hidden>
+        <h3 data-i18n="tts.result_title">合成结果</h3>
+        <audio id="audioPlayer" controls class="audio-player"></audio>
+        <div class="form-row">
+          <a id="downloadLink" class="btn btn-secondary" download="tts_output.wav" data-i18n="tts.download">下载 WAV</a>
+        </div>
+      </div>
+
+      <div class="panel api-panel">
+        <h3 data-i18n="api.title">API 接口</h3>
+        <div class="api-info">
+          <div class="api-item">
+            <span class="api-label" data-i18n="api.model_name">模型名称</span>
+            <code id="apiModelName">—</code>
+          </div>
+          <div class="api-item">
+            <span class="api-label" data-i18n="api.default_voice">默认音色</span>
+            <code id="apiDefaultVoice">—</code>
+          </div>
+          <div class="api-item">
+            <span class="api-label" data-i18n="api.internal_tts">站内 TTS</span>
+            <code>POST /api/tts</code>
+          </div>
+          <div class="api-item">
+            <span class="api-label" data-i18n="api.openai_compat">OpenAI 兼容</span>
+            <code>POST /v1/audio/speech</code>
+          </div>
+          <div class="api-item">
+            <span class="api-label" data-i18n="api.model_list">模型列表</span>
+            <code>GET /v1/models</code>
+          </div>
+          <div class="api-item">
+            <span class="api-label" data-i18n="api.api_auth">API 认证</span>
+            <code id="apiAuthStatus">—</code>
+          </div>
+        </div>
+        <details class="api-curl">
+          <summary data-i18n="api.curl_example">curl 调用示例</summary>
+          <pre id="curlExample" data-i18n="api.curl_loading">加载中...</pre>
+        </details>
+      </div>
+    </div>
+
+    <!-- ============ TAB: SETTINGS ============ -->
+    <div class="tab-content" id="tab-settings">
+      <!-- Admin password prompt (if needed) -->
+      <div class="panel" id="adminAuthPanel" hidden>
+        <h3 data-i18n="settings.admin_auth_title">管理员验证</h3>
+        <p class="hint-text" data-i18n="settings.admin_auth_hint">检测到已设置管理密码，请输入后访问密钥管理。</p>
+        <div class="form-row">
+          <div class="form-group" style="flex:1">
+            <label for="adminPasswordInput" data-i18n="settings.admin_password_label">管理密码</label>
+            <input type="password" id="adminPasswordInput" data-i18n-placeholder="settings.admin_password_placeholder" placeholder="输入 config.json 中的 admin_password">
+          </div>
+          <button id="adminAuthBtn" class="btn btn-primary" data-i18n="settings.admin_verify">验证</button>
+        </div>
+      </div>
+
+      <!-- Billing Mode Switch -->
+      <div class="panel" id="billingModePanel">
+        <h3 data-i18n="settings.billing_title">计费模式</h3>
+        <p class="hint-text" data-i18n="settings.billing_hint">三种模式互斥，只能启用一种。切换即时生效。</p>
+        <div class="billing-toggle">
+          <label class="billing-option">
+            <input type="radio" name="billingMode" value="none">
+            <span class="billing-card">
+              <span class="billing-title" data-i18n="settings.billing_none">关闭计费</span>
+              <span class="billing-desc" data-i18n="settings.billing_none_desc">所有有效密钥无限调用</span>
+            </span>
+          </label>
+          <label class="billing-option">
+            <input type="radio" name="billingMode" value="per_call">
+            <span class="billing-card">
+              <span class="billing-title" data-i18n="settings.billing_per_call">按次计费</span>
+              <span class="billing-desc" data-i18n="settings.billing_per_call_desc">每次合成扣 1 次（quota）</span>
+            </span>
+          </label>
+          <label class="billing-option">
+            <input type="radio" name="billingMode" value="per_token">
+            <span class="billing-card">
+              <span class="billing-title" data-i18n="settings.billing_per_token">按 Token 计费</span>
+              <span class="billing-desc" data-i18n="settings.billing_per_token_desc">按文本 Token 数扣减（token_quota）</span>
+            </span>
+          </label>
+        </div>
+        <div id="billingModeStatus" class="hint-text" style="margin-top:8px"></div>
+      </div>
+
+      <!-- Add Key Form -->
+      <div class="panel" id="addKeyPanel" data-billing-mode="per_call">
+        <h3 data-i18n="settings.add_key_title">添加 API 密钥</h3>
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <label for="newKeyName" data-i18n="settings.key_name_label">密钥名称</label>
+            <input type="text" id="newKeyName" data-i18n-placeholder="settings.key_name_placeholder" placeholder="例如：我的项目密钥">
+          </div>
+          <div class="form-group billing-field per-call-field">
+            <label for="newKeyQuota" data-i18n="settings.key_quota_label">按次额度（次）</label>
+            <input type="number" id="newKeyQuota" value="-1" min="-1" placeholder="-1=无限">
+            <span class="hint" data-i18n="settings.key_quota_hint">-1 为无限调用</span>
+          </div>
+        </div>
+        <div class="form-group billing-field per-token-field">
+          <label for="newKeyTokenQuota" data-i18n="settings.key_token_quota_label">Token 额度</label>
+          <div class="token-quota-row">
+            <input type="number" id="newKeyTokenQuota" value="-1" min="-1" placeholder="-1=无限" style="flex:1">
+            <button type="button" class="btn btn-secondary btn-sm token-preset" data-value="1" data-i18n="settings.preset_1token">1 Token</button>
+            <button type="button" class="btn btn-secondary btn-sm token-preset" data-value="100" data-i18n="settings.preset_hundred">百</button>
+            <button type="button" class="btn btn-secondary btn-sm token-preset" data-value="1000" data-i18n="settings.preset_thousand">千</button>
+            <button type="button" class="btn btn-secondary btn-sm token-preset" data-value="10000" data-i18n="settings.preset_ten_thousand">万</button>
+            <button type="button" class="btn btn-secondary btn-sm token-preset" data-value="100000000" data-i18n="settings.preset_hundred_million">亿</button>
+            <button type="button" class="btn btn-secondary btn-sm token-preset" data-value="-1" data-i18n="settings.preset_unlimited">无限</button>
+          </div>
+          <span class="hint" data-i18n="settings.key_token_quota_hint">按输入文本消耗的 Token 数扣减；-1 为无限</span>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:1">
+            <label for="newKeyValue" data-i18n="settings.key_value_label">密钥（留空自动生成）</label>
+            <input type="text" id="newKeyValue" data-i18n-placeholder="settings.key_value_placeholder" placeholder="sk-...（可留空自动生成）">
+          </div>
+          <button id="genKeyBtn" class="btn btn-secondary" data-i18n="settings.key_generate">随机生成</button>
+          <button id="addKeyBtn" class="btn btn-primary" data-i18n="settings.key_add">添加密钥</button>
+        </div>
+        <div id="addKeyResult" class="key-result" hidden></div>
+      </div>
+
+      <!-- Key List -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3 data-i18n="settings.keys_list_title">API 密钥列表</h3>
+          <button id="refreshKeysBtn" class="btn btn-secondary btn-sm" data-i18n="settings.keys_refresh">刷新</button>
+        </div>
+        <div id="keysList" class="keys-list">
+          <p class="hint-text" data-i18n="settings.keys_loading">加载中...</p>
+        </div>
+      </div>
+
+      <!-- Settings Info -->
+      <div class="panel api-panel">
+        <h3 data-i18n="settings.info_title">管理说明</h3>
+        <ul class="info-list">
+          <li data-i18n="settings.info_billing_mode"><strong>计费模式</strong>：三选一互斥。选择"按次计费"则只显示按次额度字段；选择"按Token计费"则只显示Token额度字段；选择"关闭计费"则不显示额度字段，所有密钥无限调用。</li>
+          <li data-i18n="settings.info_quota"><strong>按次额度</strong>：-1 表示无限调用；正数表示最大调用次数，每次成功合成扣减 1 次。</li>
+          <li data-i18n="settings.info_token_quota"><strong>Token 额度</strong>：-1 表示无限；正数按输入文本的 Token 数扣减，快捷档位：1/百/千/万/亿 Token。</li>
+          <li data-i18n="settings.info_over_quota"><strong>超额</strong>：按次额度用完返回 429；Token 额度用完返回提示"文本转语音模型额度已用完 请进行续费或者购买Pro版 或者联系你的模型提供商"。</li>
+          <li data-i18n="settings.info_admin"><strong>管理权限</strong>：未设置 admin_password 时仅本机（127.0.0.1）可管理；设置后需输入密码。</li>
+          <li data-i18n="settings.info_api"><strong>站内接口</strong>（/api/tts）始终免密钥；<strong>OpenAI 接口</strong>（/v1/*）需密钥认证。</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p data-i18n="app.footer">Hojo-TTS-Light-40M · Apache 2.0 · 本地运行，数据不上传</p>
+  </footer>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
