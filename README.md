@@ -1,4 +1,5 @@
 # Hojo-TTS-Light-40M WebUI + OpenAI 兼容 API
+English doc 英语文档 [File/文件](https://github.com/HojoAI/Hojo-TTS-Light)
 
 基于 [HojoAI/Hojo-TTS-Light](https://github.com/HojoAI/Hojo-TTS-Light) 的轻量级中英文语音合成服务。模型已预转换为 FP32 ONNX 格式，无需 PyTorch，CPU 即可运行。同时提供 Web 界面、站内 API 和 OpenAI 兼容 TTS 接口。
 
