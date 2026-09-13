@@ -65,7 +65,7 @@ start.bat
 ```bash
 python3 -m venv venv
 source venv/bin/activate    # Windows: venv\Scripts\activate
-pip install numpy soundfile tokenizers onnxruntime flask
+pip install numpy soundfile tokenizers onnxruntime flask onnx
 python3 app.py --host 0.0.0.0 --port 7860
 ```
 
